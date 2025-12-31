@@ -1,3 +1,4 @@
+use http_server::ThreadPool;
 use std::{
     error::Error,
     io::{BufReader, prelude::*},
@@ -8,11 +9,16 @@ const BAD_REQUEST_RESPONSE: &str = "HTTP/1.1 400 Bad Request\r\n\r\n";
 const NOT_FOUND_RESPONSE: &str = "HTTP/1.1 404 Not Found";
 
 fn main() -> Result<(), Box<dyn Error>> {
+    let pool = ThreadPool::build(4)?;
     let listener = TcpListener::bind("127.0.0.1:7878")?;
-
     for stream in listener.incoming() {
-        let stream = stream?;
-        handle_connection(stream)?;
+        let Ok(stream) = stream else {
+            continue;
+        };
+
+        pool.execute(|| {
+            let _ = handle_connection(stream);
+        })
     }
 
     Ok(())
