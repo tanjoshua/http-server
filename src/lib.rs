@@ -82,7 +82,13 @@ impl Worker {
             println!("Worker {id} started");
             loop {
                 // unlock receiver
-                let message = receiver.lock().unwrap().recv();
+                let Ok(receiver) = receiver.lock() else {
+                    eprintln!("poisoned mutex");
+                    break;
+                };
+
+                let message = receiver.recv();
+
                 match message {
                     Ok(next_job) => next_job(),
                     Err(_) => {

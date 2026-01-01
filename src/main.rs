@@ -1,7 +1,7 @@
 use http_server::ThreadPool;
 use std::{
     error::Error,
-    io::{BufReader, prelude::*},
+    io::{self, BufReader, prelude::*},
     net::{TcpListener, TcpStream},
 };
 
@@ -31,13 +31,13 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     Ok(())
 }
-
-fn handle_connection(mut stream: TcpStream) -> Result<(), String> {
+fn handle_connection(mut stream: TcpStream) -> Result<(), io::Error> {
     let buf_reader = BufReader::new(&stream);
 
     let response = handle_request(buf_reader);
+
     println!("Sending Response: {}", response);
-    stream.write_all(response.as_bytes()).unwrap();
+    stream.write_all(response.as_bytes())?;
 
     Ok(())
 }
@@ -45,7 +45,7 @@ fn handle_connection(mut stream: TcpStream) -> Result<(), String> {
 fn handle_request(buf_reader: BufReader<&TcpStream>) -> String {
     let mut http_request = buf_reader
         .lines()
-        .map(|result| result.unwrap())
+        .map_while(Result::ok)
         .take_while(|line| !line.is_empty());
 
     let Some(request_line) = http_request.next() else {
