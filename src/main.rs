@@ -9,17 +9,25 @@ const BAD_REQUEST_RESPONSE: &str = "HTTP/1.1 400 Bad Request\r\n\r\n";
 const NOT_FOUND_RESPONSE: &str = "HTTP/1.1 404 Not Found";
 
 fn main() -> Result<(), Box<dyn Error>> {
+    // Create a thread pool with 4 threads
     let pool = ThreadPool::build(4)?;
+
+    // Listen for connections
     let listener = TcpListener::bind("127.0.0.1:7878")?;
     for stream in listener.incoming() {
-        let Ok(stream) = stream else {
-            continue;
-        };
-
-        pool.execute(|| {
-            let _ = handle_connection(stream);
-        })
+        match stream {
+            Ok(stream) => pool.execute(|| {
+                if let Err(err) = handle_connection(stream) {
+                    eprintln!("Could not handle connection: {}", err);
+                }
+            }),
+            Err(err) => {
+                eprintln!("Could not read connection: {}", err)
+            }
+        }
     }
+
+    println!("Shutting down...");
 
     Ok(())
 }

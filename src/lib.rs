@@ -7,7 +7,21 @@ type Job = Box<dyn FnOnce() + Send + 'static>;
 
 pub struct ThreadPool {
     workers: Vec<Worker>,
-    sender: mpsc::Sender<Job>,
+    sender: Option<mpsc::Sender<Job>>,
+}
+
+impl Drop for ThreadPool {
+    fn drop(&mut self) {
+        drop(self.sender.take());
+
+        for worker in self.workers.drain(..) {
+            if worker.thread.join().is_err() {
+                eprintln!("Could not join thread");
+            } else {
+                println!("Worker {} shut down", worker.id)
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -25,10 +39,11 @@ impl Error for PoolCreationError {}
 impl ThreadPool {
     /// Create a new ThreadPool
     ///
+    /// The size is the number of threads in the pool.
     pub fn build(size: usize) -> Result<ThreadPool, PoolCreationError> {
-        /// The size is the number of threads in the pool.
-        return Err(PoolCreationError::ZeroThreads);
-        if size == 0 {}
+        if size == 0 {
+            return Err(PoolCreationError::ZeroThreads);
+        }
         let (tx, rx) = mpsc::channel();
         let receiver = Arc::new(Mutex::new(rx));
         let mut workers = Vec::with_capacity(size);
@@ -37,13 +52,21 @@ impl ThreadPool {
         }
         Ok(ThreadPool {
             workers,
-            sender: tx,
+            sender: Some(tx),
         })
     }
 
     pub fn execute<F: FnOnce() + Send + 'static>(&self, f: F) {
         let job = Box::new(f);
-        self.sender.send(job).unwrap();
+        if self
+            .sender
+            .as_ref()
+            .expect("sender should be none before dropped")
+            .send(job)
+            .is_err()
+        {
+            println!("Could not send job to thread pool")
+        }
     }
 }
 
@@ -56,10 +79,17 @@ impl Worker {
     fn new(id: usize, receiver: Arc<Mutex<mpsc::Receiver<Job>>>) -> Self {
         // improvement: use thread builder so that server won't panic
         let thread = thread::spawn(move || {
+            println!("Worker {id} started");
             loop {
                 // unlock receiver
-                let next_job = receiver.lock().unwrap().recv().unwrap();
-                next_job();
+                let message = receiver.lock().unwrap().recv();
+                match message {
+                    Ok(next_job) => next_job(),
+                    Err(_) => {
+                        println!("Worker {id} disconnected. Shutting down...");
+                        break;
+                    }
+                }
             }
         });
         Worker { id, thread }
